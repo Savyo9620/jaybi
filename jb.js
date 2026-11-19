@@ -183,6 +183,22 @@
     }).join("")}</div>`;
   };
 
+  /* أزرار إضافة البطاقة للمحفظة */
+  JB.walletButtons = function (token) {
+    const base = `${C.SUPABASE_URL}/functions/v1/jb-wallet`;
+    const ua = navigator.userAgent || "";
+    const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    const android = /Android/.test(ua);
+    const apple = C.WALLET_APPLE && !android ? `<a class="wallet-btn" href="${base}/apple?k=${encodeURIComponent(token)}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8s2 .8 3.4.8c1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.7-1-2.7-4.1zM13.9 4.9c.7-.9 1.2-2 1.1-3.2-1 0-2.3.7-3 1.6-.7.8-1.2 2-1.1 3.1 1.2.1 2.3-.6 3-1.5z"/></svg>
+        <span><small>إضافة إلى</small>Apple Wallet</span></a>` : "";
+    const google = C.WALLET_GOOGLE && !ios ? `<a class="wallet-btn" href="${base}/google?k=${encodeURIComponent(token)}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3" fill="#4285F4"/><rect x="3" y="8" width="18" height="3" fill="#34A853"/><rect x="3" y="11" width="18" height="3" fill="#FBBC04"/><rect x="3" y="14" width="18" height="2.5" fill="#EA4335"/></svg>
+        <span><small>إضافة إلى</small>Google Wallet</span></a>` : "";
+    if (!apple && !google) return "";
+    return `<div class="wallet-row">${android ? google + apple : apple + google}</div>`;
+  };
+
   /* بطاقاتي على هذا الجهاز */
   JB.myCards = {
     all() { return JB.store.get("jb_my_cards", []); },

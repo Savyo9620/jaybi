@@ -53,10 +53,13 @@ function render() {
   if (program.expired) html += `<div class="panel center" style="margin-top:12px;color:var(--bad);font-weight:700">انتهت مدة هذا العرض</div>`;
   else if (!program.active || !card.active) html += `<div class="panel center" style="margin-top:12px;color:var(--bad);font-weight:700">هذه البطاقة موقوفة</div>`;
 
-  html += JB.rewardsList(data, card.balance);
-
-  if (staff) html += staffPanel(off);
-  else html += `<p class="center muted" style="font-size:14px;margin-top:16px">اعرض هذا الباركود للموظف عند كل زيارة.<br>احفظ هذه الصفحة أو أضفها للشاشة الرئيسية لتصل لبطاقتك بسرعة.</p>`;
+  if (staff) html += JB.rewardsList(data, card.balance) + staffPanel(off);
+  else {
+    const wb = JB.walletButtons(card.token);
+    html += wb + JB.rewardsList(data, card.balance) + `<p class="center muted" style="font-size:14px;margin-top:16px">اعرض هذا الباركود للموظف عند كل زيارة.<br>${wb
+      ? "أضف البطاقة لمحفظة هاتفك ليتحدّث رصيدك تلقائياً."
+      : "احفظ هذه الصفحة أو أضفها للشاشة الرئيسية لتصل لبطاقتك بسرعة."}</p>`;
+  }
 
   document.getElementById("app").innerHTML = html;
   document.getElementById("foot").innerHTML = staff
