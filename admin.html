@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>لوحة الإدارة — جيبي</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="jb.css">
+<script src="config.js"></script>
+<script src="qr.js"></script>
+<script src="jb.js"></script>
+<style>
+  .wrap{max-width:980px}
+  .top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+  .top .brandbar{padding:0}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+  .stat b{display:block;font-size:26px;font-variant-numeric:tabular-nums}
+  .stat span{color:var(--muted);font-size:13px}
+  .biz{background:#fff;border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px}
+  .biz-head{display:flex;align-items:center;gap:12px}
+  .biz-head img,.biz-head .ph{width:48px;height:48px;border-radius:50%;object-fit:cover;flex:none;background:#000}
+  .biz-head .ph{display:grid;place-items:center;color:#fff;font-weight:800;font-size:20px}
+  .biz-head h3{margin:0;font-size:18px}
+  .biz-head .meta{color:var(--muted);font-size:13px}
+  .biz-head .acts{margin-inline-start:auto;display:flex;gap:6px;flex-wrap:wrap}
+  .prog{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px dashed var(--line);padding-top:10px;margin-top:10px}
+  .prog .t{font-weight:700} .prog .k{font-size:12px;background:var(--cream);border-radius:99px;padding:2px 8px;color:var(--muted)}
+  .prog .n{color:var(--muted);font-size:13px}
+  .prog .acts{margin-inline-start:auto;display:flex;gap:6px;flex-wrap:wrap}
+  .pill-off{background:#fde2e2!important;color:var(--bad)!important}
+  dialog{border:0;border-radius:20px;padding:0;width:min(760px,96vw);max-height:92vh;box-shadow:0 30px 80px -20px rgba(0,0,0,.5)}
+  dialog::backdrop{background:rgba(20,16,14,.5)}
+  .dlg{padding:20px;overflow:auto;max-height:92vh}
+  .dlg h2{margin:0 0 14px}
+  .two{display:grid;grid-template-columns:1fr 300px;gap:18px}
+  @media(max-width:720px){.two{grid-template-columns:1fr}}
+  .colors{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .colors input[type=color]{width:100%;height:42px;border:1.5px solid var(--line);border-radius:10px;padding:2px;background:#fff}
+  .rw{display:grid;grid-template-columns:90px 1fr 36px;gap:6px;margin-bottom:6px}
+  .rw button{border:0;background:#f3ebe1;border-radius:10px;cursor:pointer}
+  .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
+  .seg label{border:1.5px solid var(--line);border-radius:12px;padding:10px;text-align:center;cursor:pointer;font-weight:700;font-size:14px}
+  .seg input{display:none} .seg input:checked + span{color:var(--brand-ink)}
+  .seg label:has(input:checked){border-color:var(--brand);background:#fff4ef}
+  .seg label:has(input:disabled){opacity:.5;cursor:not-allowed}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:right;padding:8px 6px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:700;font-size:12px}
+  .dlg-foot{display:flex;gap:8px;justify-content:flex-start;margin-top:16px;flex-wrap:wrap}
+  .empty{text-align:center;padding:40px 10px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="msg">جارِ التحميل…</div></div>
+
+<dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
+
+<script>
+let state = { businesses: [] };
+const $ = (s) => document.querySelector(s);
+const dlg = $("#dlg");
+
+/* ---------------- الدخول ---------------- */
+function loginView() {
+  $("#app").innerHTML = `
+    <div style="max-width:400px;margin:40px auto">
+      <div class="brandbar"><span class="mark">ج</span>جيبي <small>لوحة الإدارة</small></div>
+      <form class="panel" onsubmit="event.preventDefault();doLogin()">
+        <h2>تسجيل الدخول</h2>
+        <div class="field"><label>الإيميل</label><input class="input ltr" id="em" type="email" autocomplete="username" required></div>
+        <div class="field"><label>كلمة المرور</label><input class="input ltr" id="pw" type="password" autocomplete="current-password" required></div>
+        <button class="btn primary big block" id="lb">دخول</button>
+      </form>
+    </div>`;
+}
+async function doLogin() {
+  $("#lb").disabled = true;
+  const r = await JB.auth.login($("#em").value.trim(), $("#pw").value);
+  $("#lb").disabled = false;
+  if (!r.ok) { JB.toast(r.error, "bad"); return; }
+  load();
+}
+function logout() { JB.auth.logout(); loginView(); }
+
+/* ---------------- الرئيسية ---------------- */
+async function load() {
+  if (!JB.auth.session()) return loginView();
+  const r = await JB.rpc("jb_admin_overview", {}, { auth: true });
+  if (!r.ok) {
+    if (r.error === "AUTH" || r.error === "NOT_ADMIN") { JB.toast(JB.err(r.error), "bad"); JB.auth.logout(); return loginView(); }
+    $("#app").innerHTML = `<div class="msg">${JB.err(r.error)}<br><br><button class="btn soft" onclick="load()">إعادة المحاولة</button></div>`;
+    return;
+  }
+  state.businesses = r.businesses;
+  render();
+}
+
+function render() {
+  const B = state.businesses;
+  const progs = B.flatMap((b) => b.programs);
+  const totCards = progs.reduce((s, p) => s + p.cards, 0), tot7 = progs.reduce((s, p) => s + p.visits_7d, 0);
+  $("#app").innerHTML = `
+    <div class="top">
+      <div class="brandbar"><span class="mark">ج</span>جيبي <small>لوحة الإدارة</small></div>
+      <div style="display:flex;gap:8px"><button class="btn brand" onclick="editBiz()">+ محل جديد</button><button class="btn soft" onclick="logout()">خروج</button></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>${B.length}</b><span>محلات</span></div>
+      <div class="stat"><b>${progs.length}</b><span>برامج</span></div>
+      <div class="stat"><b>${JB.fmt(totCards)}</b><span>بطاقة زبون</span></div>
+      <div class="stat"><b>${JB.fmt(tot7)}</b><span>عملية آخر 7 أيام</span></div>
+    </div>
+    ${B.length ? B.map(bizHTML).join("") : `<div class="empty panel">لا توجد محلات بعد.<br><br><button class="btn brand" onclick="editBiz()">+ أضف أول محل</button></div>`}`;
+}
+
+function bizHTML(b) {
+  const logo = JB.safeUrl(b.logo_url);
+  return `<div class="biz">
+    <div class="biz-head">
+      ${logo ? `<img src="${JB.esc(logo)}" alt="">` : `<div class="ph" style="background:${JB.safeColor(b.color_bg, "#333")}">${JB.esc(b.name.charAt(0))}</div>`}
+      <div><h3>${JB.esc(b.name)} ${b.active ? "" : '<span class="k pill-off" style="font-size:12px;border-radius:99px;padding:2px 8px">موقوف</span>'}</h3>
+        <div class="meta">${JB.CATEGORY[b.category] || ""}${b.phone ? " · " + JB.esc(b.phone) : ""} · ${b.has_pin ? "الرقم السري مضبوط ✓" : '<b style="color:var(--bad)">لم يُضبط الرقم السري</b>'}</div></div>
+      <div class="acts">
+        <button class="btn sm soft" onclick="editBiz('${b.id}')">تعديل</button>
+        <button class="btn sm soft" onclick="setPin('${b.id}')">الرقم السري</button>
+        <button class="btn sm primary" onclick="editProg('${b.id}')">+ برنامج</button>
+      </div>
+    </div>
+    ${b.programs.map((p) => `<div class="prog">
+      <span class="t">${JB.esc(p.title)}</span><span class="k ${p.active ? "" : "pill-off"}">${JB.KIND[p.kind]}${p.active ? "" : " · موقوف"}</span>
+      <span class="n">${JB.fmt(p.cards)} بطاقة · ${JB.fmt(p.visits_7d)} عملية/أسبوع${p.expires_at ? " · ينتهي " + new Date(p.expires_at).toLocaleDateString("ar-IQ") : ""}</span>
+      <div class="acts">
+        <button class="btn sm brand" onclick="poster('${b.id}','${p.id}')">باركود المحل</button>
+        <button class="btn sm soft" onclick="customers('${b.id}','${p.id}')">الزبائن</button>
+        <button class="btn sm soft" onclick="editProg('${b.id}','${p.id}')">تعديل</button>
+      </div></div>`).join("")}
+  </div>`;
+}
+
+const findB = (id) => state.businesses.find((b) => b.id === id);
+const findP = (bid, pid) => findB(bid).programs.find((p) => p.id === pid);
+function openDlg(html) { $("#dlgBody").innerHTML = html; if (!dlg.open) dlg.showModal(); }
+function closeDlg() { dlg.close(); }
+
+/* ---------------- المحل ---------------- */
+function editBiz(id) {
+  const b = id ? findB(id) : { name: "", category: "restaurant", logo_url: "", color_bg: "#5b1220", color_fg: "#ffffff", color_accent: "#e8c26a", phone: "", active: true };
+  openDlg(`
+    <h2>${id ? "تعديل المحل" : "محل جديد"}</h2>
+    <div class="two">
+      <form id="bf" oninput="bizPreview()" onsubmit="event.preventDefault();saveBiz('${id || ""}')">
+        <div class="field"><label>اسم المحل</label><input class="input" name="name" value="${JB.esc(b.name)}" required maxlength="80"></div>
+        <div class="field"><label>النوع</label><select class="input" name="category">
+          ${Object.entries(JB.CATEGORY).map(([k, v]) => `<option value="${k}" ${b.category === k ? "selected" : ""}>${v}</option>`).join("")}</select></div>
+        <div class="field"><label>هاتف المحل <small>(اختياري)</small></label><input class="input ltr" name="phone" value="${JB.esc(b.phone || "")}"></div>
+        <div class="field"><label>الشعار</label>
+          <input type="file" accept="image/png,image/jpeg,image/webp" onchange="upLogo(this)">
+          <input class="input ltr" name="logo_url" value="${JB.esc(b.logo_url || "")}" placeholder="أو الصق رابط الصورة https://…">
+          <small>يفضّل صورة مربعة بخلفية — 512×512 أو أكبر</small></div>
+        <div class="field"><label>الألوان</label>
+          <div class="colors">
+            <div><small>الخلفية</small><input type="color" name="color_bg" value="${b.color_bg}"></div>
+            <div><small>النص</small><input type="color" name="color_fg" value="${b.color_fg}"></div>
+            <div><small>التمييز</small><input type="color" name="color_accent" value="${b.color_accent}"></div>
+          </div></div>
+        ${id ? `<label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="checkbox" name="active" ${b.active ? "checked" : ""}> المحل فعّال</label>` : ""}
+        <div class="dlg-foot"><button class="btn primary">حفظ</button><button type="button" class="btn soft" onclick="closeDlg()">إلغاء</button></div>
+      </form>
+      <div><small class="muted">معاينة</small><div id="bp" style="margin-top:6px"></div></div>
+    </div>`);
+  bizPreview();
+}
+function bizForm() {
+  const f = new FormData($("#bf"));
+  return { name: f.get("name"), category: f.get("category"), phone: f.get("phone"), logo_url: f.get("logo_url"),
+    color_bg: f.get("color_bg"), color_fg: f.get("color_fg"), color_accent: f.get("color_accent"),
+    active: $("#bf [name=active]") ? $("#bf [name=active]").checked : true };
+}
+function bizPreview() {
+  const b = bizForm();
+  $("#bp").innerHTML = JB.cardVisual({ business: b, program: { kind: "stamps", title: "بطاقة الأختام", config: { rewards: [{ at: 6, label: "مكافأة" }] } } },
+    { token: "preview", number: 1, name: "اسم الزبون", balance: 2 }, { noQr: true });
+}
+async function upLogo(inp) {
+  const f = inp.files[0]; if (!f) return;
+  if (f.size > 2 * 1024 * 1024) { JB.toast("الصورة أكبر من 2 ميغا", "bad"); return; }
+  JB.toast("جارِ رفع الشعار…");
+  const r = await JB.uploadLogo(f);
+  if (!r.ok) { JB.toast(r.error, "bad"); return; }
+  $("#bf [name=logo_url]").value = r.url; bizPreview(); JB.toast("تم رفع الشعار", "ok");
+}
+async function saveBiz(id) {
+  const p = bizForm(); if (id) p.id = id;
+  const r = await JB.rpc("jb_admin_save_business", { p }, { auth: true });
+  if (!r.ok) { JB.toast(JB.err(r.error), "bad"); return; }
+  closeDlg(); JB.toast("تم الحفظ", "ok"); await load();
+  if (!id) setPin(r.id, true);
+}
+
+function setPin(id, isNew) {
+  const b = findB(id);
+  openDlg(`
+    <h2>الرقم السري لموظفي ${JB.esc(b.name)}</h2>
+    <p class="muted" style="margin-top:-6px">${isNew ? "خطوة مهمة: بدون رقم سري لا يستطيع الموظف خصم أو إضافة شيء.<br>" : ""}
+      أعطِ هذا الرقم لصاحب المحل فقط. تغييره يُخرج كل الأجهزة المسجّلة.</p>
+    <form onsubmit="event.preventDefault();savePin('${id}')">
+      <div class="field"><label>الرقم السري (4 إلى 10 أرقام)</label>
+        <input class="input pin-input" id="np" inputmode="numeric" pattern="[0-9]{4,10}" required value="${String(Math.floor(100000 + Math.random() * 900000))}"></div>
+      <div class="dlg-foot"><button class="btn primary">حفظ الرقم</button><button type="button" class="btn soft" onclick="closeDlg()">لاحقاً</button></div>
+    </form>`);
+}
+async function savePin(id) {
+  const v = $("#np").value.trim();
+  const r = await JB.rpc("jb_admin_set_pin", { p_business: id, p_pin: v }, { auth: true });
+  if (!r.ok) { JB.toast(JB.err(r.error), "bad"); return; }
+  closeDlg(); JB.toast(`تم ضبط الرقم السري: ${v}`, "ok"); load();
+}
+
+/* ---------------- البرنامج ---------------- */
+const DEF = {
+  stamps: { rewards: [{ at: 6, label: "قهوة مجانية" }] },
+  prepaid: { unit: "وجبة", default_amount: 5 },
+  points: { per_amount: 1000, points: 1, currency: "د.ع", rewards: [{ cost: 100, label: "وجبة مجانية" }] }
+};
+let progDraft = null;
+
+function editProg(bid, pid) {
+  const p = pid ? JSON.parse(JSON.stringify(findP(bid, pid))) : { kind: "stamps", title: "", description: "", config: JSON.parse(JSON.stringify(DEF.stamps)), expires_at: null, active: true };
+  progDraft = { bid, pid, ...p };
+  renderProg();
+}
+function renderProg() {
+  const d = progDraft, cfg = d.config, b = findB(d.bid);
+  const ed = d.expires_at ? new Date(new Date(d.expires_at).getTime() - 86400000) : null;
+  const exp = ed ? `${ed.getFullYear()}-${String(ed.getMonth() + 1).padStart(2, "0")}-${String(ed.getDate()).padStart(2, "0")}` : "";
+  let cfgHtml = "";
+  if (d.kind === "stamps") cfgHtml = rewardsEditor("at", "عدد الأختام");
+  else if (d.kind === "prepaid") cfgHtml = `
+    <div class="grid2">
+      <div class="field"><label>اسم الوحدة</label><input class="input" value="${JB.esc(cfg.unit || "")}" oninput="progDraft.config.unit=this.value;progPreview()" placeholder="وجبة / جلسة / غسلة"></div>
+      <div class="field"><label>التعبئة الافتراضية</label><input class="input ltr" type="number" min="1" max="500" value="${cfg.default_amount || 5}" oninput="progDraft.config.default_amount=+this.value"></div>
+    </div>`;
+  else cfgHtml = `
+    <div class="grid2">
+      <div class="field"><label>كل مبلغ</label><input class="input ltr" type="number" min="1" value="${cfg.per_amount}" oninput="progDraft.config.per_amount=+this.value"></div>
+      <div class="field"><label>يعطي نقاط</label><input class="input ltr" type="number" min="1" value="${cfg.points}" oninput="progDraft.config.points=+this.value"></div>
+    </div>
+    <div class="field"><label>العملة</label><input class="input" value="${JB.esc(cfg.currency || "")}" oninput="progDraft.config.currency=this.value"></div>
+    ${rewardsEditor("cost", "عدد النقاط")}`;
+
+  openDlg(`
+    <h2>${d.pid ? "تعديل البرنامج" : "برنامج جديد"} — ${JB.esc(b.name)}</h2>
+    <div class="two">
+      <form id="pf" onsubmit="event.preventDefault();saveProg()">
+        <div class="seg">${Object.entries(JB.KIND).map(([k, v]) => `<label><input type="radio" name="kind" value="${k}" ${d.kind === k ? "checked" : ""} ${d.pid ? "disabled" : ""} onchange="setKind('${k}')"><span>${v}</span></label>`).join("")}</div>
+        <div class="field"><label>اسم البرنامج</label><input class="input" required maxlength="60" value="${JB.esc(d.title)}" oninput="progDraft.title=this.value;progPreview()" placeholder="${d.kind === "stamps" ? "بطاقة القهوة" : d.kind === "prepaid" ? "باقة 5 وجبات" : "نقاط الولاء"}"></div>
+        <div class="field"><label>وصف قصير <small>(اختياري)</small></label><input class="input" maxlength="140" value="${JB.esc(d.description || "")}" oninput="progDraft.description=this.value"></div>
+        ${cfgHtml}
+        <div class="field"><label>آخر يوم للعرض <small>(اختياري — بعده يتوقف الخصم والإضافة)</small></label>
+          <input class="input ltr" type="date" value="${exp}" onchange="progDraft.expires_at=this.value?new Date(this.value+'T00:00:00').getTime()+86400000:null"></div>
+        ${d.pid ? `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" ${d.active ? "checked" : ""} onchange="progDraft.active=this.checked"> البرنامج فعّال</label>` : ""}
+        <div class="dlg-foot"><button class="btn primary">حفظ</button><button type="button" class="btn soft" onclick="closeDlg()">إلغاء</button></div>
+      </form>
+      <div><small class="muted">معاينة</small><div id="pp" style="margin-top:6px"></div></div>
+    </div>`);
+  progPreview();
+}
+function rewardsEditor(key, lbl) {
+  const list = progDraft.config.rewards || [];
+  return `<div class="field"><label>المكافآت</label>
+    ${list.map((r, i) => `<div class="rw">
+      <input class="input ltr" type="number" min="1" value="${r[key]}" title="${lbl}" oninput="progDraft.config.rewards[${i}].${key}=+this.value;progPreview()">
+      <input class="input" value="${JB.esc(r.label)}" placeholder="اسم المكافأة" oninput="progDraft.config.rewards[${i}].label=this.value;progPreview()">
+      <button type="button" onclick="progDraft.config.rewards.splice(${i},1);renderProg()">✕</button></div>`).join("")}
+    <small>${key === "at" ? "مثال: 3 = كوكيز، 6 = قهوة مجانية. أكبر رقم هو عدد خانات البطاقة." : "مثال: 100 نقطة = وجبة مجانية"}</small>
+    <button type="button" class="btn sm soft" style="justify-self:start" onclick="progDraft.config.rewards.push({${key}:${key === "at" ? 10 : 200},label:''});renderProg()">+ مكافأة</button></div>`;
+}
+function setKind(k) { progDraft.kind = k; progDraft.config = JSON.parse(JSON.stringify(DEF[k])); renderProg(); }
+function progPreview() {
+  const d = progDraft, b = findB(d.bid);
+  $("#pp").innerHTML = JB.cardVisual({ business: b, program: { kind: d.kind, title: d.title || "اسم البرنامج", config: d.config } },
+    { token: "x", number: 1, name: "اسم الزبون", balance: d.kind === "stamps" ? 2 : d.kind === "prepaid" ? (d.config.default_amount || 5) : 40 }, { noQr: true });
+}
+async function saveProg() {
+  const d = progDraft;
+  if (d.kind !== "prepaid") {
+    const key = d.kind === "stamps" ? "at" : "cost";
+    d.config.rewards = (d.config.rewards || []).filter((r) => r.label.trim() && +r[key] > 0).sort((a, b) => a[key] - b[key]);
+    if (!d.config.rewards.length) { JB.toast("أضف مكافأة واحدة على الأقل", "bad"); return; }
+    if (d.kind === "stamps" && JB.stampMax(d.config) > 30) { JB.toast("أقصى عدد أختام 30", "bad"); return; }
+  }
+  const p = { business_id: d.bid, kind: d.kind, title: d.title.trim(), description: (d.description || "").trim(), config: d.config,
+    expires_at: d.expires_at ? new Date(d.expires_at).toISOString() : "", active: d.active };
+  if (d.pid) p.id = d.pid;
+  const r = await JB.rpc("jb_admin_save_program", { p }, { auth: true });
+  if (!r.ok) { JB.toast(JB.err(r.error), "bad"); return; }
+  closeDlg(); JB.toast("تم الحفظ", "ok"); load();
+}
+
+/* ---------------- باركود المحل (للطباعة) ---------------- */
+function poster(bid, pid) {
+  const b = findB(bid), p = findP(bid, pid);
+  const url = JB.base + "join.html?j=" + p.join_code;
+  const bg = JB.safeColor(b.color_bg, "#5b1220"), fg = JB.safeColor(b.color_fg, "#fff"), ac = JB.safeColor(b.color_accent, "#e8c26a");
+  const logo = JB.safeUrl(b.logo_url);
+  const w = window.open("", "_blank");
+  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${JB.esc(b.name)} — باركود</title>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@500;800&display=swap" rel="stylesheet">
+  <style>@page{size:A5;margin:0}*{box-sizing:border-box;margin:0}body{font-family:Tajawal,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .p{width:148mm;height:210mm;background:${bg};color:${fg};display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:14mm 12mm 9mm;text-align:center;margin:auto}
+  img{width:30mm;height:30mm;border-radius:50%;object-fit:cover;box-shadow:0 0 0 1mm ${ac}}
+  h1{font-size:30pt;margin-top:4mm} h2{font-size:15pt;font-weight:500;opacity:.9}
+  .q{background:#fff;border-radius:6mm;padding:5mm;width:78mm} .q svg{width:100%;display:block}
+  .cta{font-size:18pt;font-weight:800;color:${ac}} .s{font-size:11pt;opacity:.85}
+  .f{font-size:9pt;opacity:.7;direction:ltr}
+  .bar{position:fixed;top:10px;left:10px} @media print{.bar{display:none}}</style></head>
+  <body><div class="bar"><button onclick="print()" style="font-size:16px;padding:8px 16px">طباعة</button></div>
+  <div class="p"><div>${logo ? `<img src="${JB.esc(logo)}">` : ""}<h1>${JB.esc(b.name)}</h1><h2>${JB.esc(p.title)}</h2></div>
+  <div class="q">${window.jbQR(url, { level: "M" })}</div>
+  <div><div class="cta">امسح الباركود واحصل على بطاقتك</div><div class="s">بكاميرا هاتفك — بدون تطبيق</div></div>
+  <div class="f">جيبي · Jaybi</div></div></body></html>`);
+  w.document.close();
+}
+
+/* ---------------- الزبائن ---------------- */
+async function customers(bid, pid, q = "") {
+  const b = findB(bid), p = findP(bid, pid);
+  const r = await JB.rpc("jb_admin_cards", { p_program: pid, p_search: q }, { auth: true });
+  if (!r.ok) { JB.toast(JB.err(r.error), "bad"); return; }
+  const unit = p.kind === "stamps" ? "ختم" : p.kind === "points" ? "نقطة" : (p.config.unit || "");
+  const f = new Intl.DateTimeFormat("ar-IQ", { dateStyle: "medium" });
+  openDlg(`
+    <h2>زبائن ${JB.esc(b.name)} — ${JB.esc(p.title)}</h2>
+    <form onsubmit="event.preventDefault();customers('${bid}','${pid}',this.q.value)" style="display:flex;gap:8px;margin-bottom:10px">
+      <input class="input" name="q" value="${JB.esc(q)}" placeholder="بحث بالاسم أو الهاتف أو رقم البطاقة"><button class="btn primary">بحث</button></form>
+    <p class="muted" style="margin:0 0 8px">انضمام: <a href="${JB.base}join.html?j=${p.join_code}" target="_blank" style="direction:ltr;display:inline-block">${JB.base}join.html?j=${p.join_code}</a></p>
+    ${r.items.length ? `<div style="overflow:auto"><table><tr><th>#</th><th>الاسم</th><th>الهاتف</th><th>الرصيد</th><th>المكافآت</th><th>آخر زيارة</th><th></th></tr>
+    ${r.items.map((c) => `<tr><td>${c.number}</td><td>${JB.esc(c.name)}</td><td style="direction:ltr;text-align:right">${JB.esc(c.phone || "—")}</td>
+      <td><b>${JB.fmt(c.balance)}</b> ${JB.esc(unit)}</td><td>${c.rewards_taken}</td><td>${c.last_visit_at ? f.format(new Date(c.last_visit_at)) : "—"}</td>
+      <td><a class="btn sm soft" href="card.html?k=${encodeURIComponent(c.token)}" target="_blank">فتح</a></td></tr>`).join("")}</table></div>`
+      : `<div class="empty">لا يوجد زبائن ${q ? "بهذا البحث" : "بعد"}</div>`}
+    <div class="dlg-foot"><button class="btn soft" onclick="closeDlg()">إغلاق</button></div>`);
+}
+
+load();
+</script>
+</body>
+</html>

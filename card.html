@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#f8f4ee">
+<title>بطاقتي — جيبي</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="jb.css">
+<script src="config.js"></script>
+<script src="qr.js"></script>
+<script src="jb.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <a class="brandbar" href="./"><span class="mark">ج</span>جيبي <small>بطاقاتك بجيبك</small></a>
+  <div id="app"><div class="msg">جارِ التحميل…</div></div>
+  <div class="footer" id="foot"></div>
+</div>
+
+<script>
+const token = JB.param("k").trim().toLowerCase();
+let data = null;          // {card, business, program}
+let pin = null;           // الرقم السري لمحل هذه البطاقة على هذا الجهاز
+let busy = false, confirmKey = null, confirmTimer = null;
+let topupAmt = 5, stampAmt = 1;
+
+const pinKey = () => "jb_pin_" + data.business.id;
+
+async function load() {
+  if (!token) { document.getElementById("app").innerHTML = `<div class="msg">امسح الباركود الموجود على بطاقتك.</div>`; return; }
+  const res = await JB.rpc("jb_card", { p_token: token });
+  if (!res.ok) {
+    document.getElementById("app").innerHTML = `<div class="msg">${JB.err(res.error)}<br><br><button class="btn soft" onclick="load()">إعادة المحاولة</button></div>`;
+    return;
+  }
+  data = res;
+  pin = JB.store.get(pinKey());
+  topupAmt = +(data.program.config.default_amount || 5);
+  document.title = `${data.business.name} — ${data.program.title}`;
+  if (!pin) JB.myCards.add(token, `${data.business.name} · ${data.program.title}`);
+  render();
+}
+
+function render() {
+  const { card, business, program } = data;
+  const staff = !!pin;
+  const off = !card.active || !program.active || program.expired;
+  let html = JB.cardVisual(data, card);
+
+  if (program.expired) html += `<div class="panel center" style="margin-top:12px;color:var(--bad);font-weight:700">انتهت مدة هذا العرض</div>`;
+  else if (!program.active || !card.active) html += `<div class="panel center" style="margin-top:12px;color:var(--bad);font-weight:700">هذه البطاقة موقوفة</div>`;
+
+  html += JB.rewardsList(data, card.balance);
+
+  if (staff) html += staffPanel(off);
+  else html += `<p class="center muted" style="font-size:14px;margin-top:16px">اعرض هذا الباركود للموظف عند كل زيارة.<br>احفظ هذه الصفحة أو أضفها للشاشة الرئيسية لتصل لبطاقتك بسرعة.</p>`;
+
+  document.getElementById("app").innerHTML = html;
+  document.getElementById("foot").innerHTML = staff
+    ? `وضع الموظف — ${JB.esc(business.name)} · <button class="btn ghost" onclick="logout()">خروج</button>`
+    : `<button class="btn ghost" onclick="showPin()">دخول الموظف</button>`;
+  if (staff && program.kind === "points") updatePointsPreview();
+}
+
+function staffPanel(off) {
+  const { card, program } = data, cfg = program.config || {};
+  let body = "";
+  if (program.kind === "stamps") {
+    const max = JB.stampMax(cfg);
+    body = `
+      <button class="btn brand big block" id="b-stamp" ${off || card.balance >= max ? "disabled" : ""} onclick="act('stamp',{p_value:stampAmt})">+ إضافة ${stampAmt === 1 ? "ختم" : stampAmt + " أختام"}</button>
+      <div class="stepper"><button onclick="step('stampAmt',-1,1,10)">−</button><output id="o-stampAmt">${stampAmt}</output><button onclick="step('stampAmt',1,1,10)">+</button></div>
+      ${redeemButtons("at", "ختم", off)}`;
+  } else if (program.kind === "prepaid") {
+    const unit = JB.esc(cfg.unit || "رصيد");
+    body = `
+      <button class="btn danger big block" id="b-use" ${off || card.balance <= 0 ? "disabled" : ""} onclick="confirmThen('use',()=>act('use',{p_value:1}))">خصم 1 ${unit}</button>
+      <div class="panel" style="padding:12px;margin-top:10px;background:var(--cream)">
+        <div class="center" style="font-weight:700">تعبئة الرصيد (إضافة)</div>
+        <div class="stepper"><button onclick="step('topupAmt',-1,1,500)">−</button><output id="o-topupAmt">${topupAmt}</output><button onclick="step('topupAmt',1,1,500)">+</button></div>
+        <button class="btn primary block" ${off ? "disabled" : ""} onclick="confirmThen('topup',()=>act('topup',{p_value:topupAmt}))" id="b-topup">إضافة ${topupAmt} ${unit}</button>
+      </div>`;
+  } else {
+    const cur = JB.esc(cfg.currency || "د.ع");
+    body = `
+      <div class="field"><label>المبلغ المدفوع (${cur})</label>
+        <input class="input ltr" id="amount" inputmode="decimal" placeholder="25000" oninput="updatePointsPreview()"></div>
+      <button class="btn brand big block" id="b-earn" ${off ? "disabled" : ""} onclick="earn()">إضافة النقاط</button>
+      ${redeemButtons("cost", "نقطة", off)}`;
+  }
+  return `
+    <div class="panel staff">
+      <div class="head"><b>وضع الموظف</b><span class="badge">${JB.esc(data.business.name)}</span></div>
+      <div class="stack">${body}</div>
+      <div class="grid2" style="margin-top:12px">
+        <button class="btn soft" ${off ? "disabled" : ""} onclick="confirmThen('undo',()=>act('undo'))" id="b-undo">↺ تراجع</button>
+        <button class="btn soft" onclick="history()">السجل</button>
+      </div>
+      <div class="hist" id="hist"></div>
+    </div>`;
+}
+
+function redeemButtons(key, unit, off) {
+  const list = (data.program.config.rewards || []);
+  if (!list.length) return "";
+  return `<div style="margin-top:6px"><div style="font-weight:700;margin-bottom:6px">استبدال مكافأة</div>
+    <div class="stack">${list.map((r, i) => {
+      const ok = data.card.balance >= +r[key];
+      return `<button class="btn ${ok ? "primary" : "soft"} block" id="b-r${i}" ${off || !ok ? "disabled" : ""}
+        onclick="confirmThen('r${i}',()=>act('redeem',{p_reward:${i}}))">🎁 ${JB.esc(r.label)} <small style="opacity:.7">(${JB.fmt(r[key])} ${unit})</small></button>`;
+    }).join("")}</div></div>`;
+}
+
+function step(name, d, min, max) {
+  window[name] = Math.min(max, Math.max(min, (name === "stampAmt" ? stampAmt : topupAmt) + d));
+  if (name === "stampAmt") stampAmt = window[name]; else topupAmt = window[name];
+  render();
+}
+
+function updatePointsPreview() {
+  const cfg = data.program.config, inp = document.getElementById("amount"), b = document.getElementById("b-earn");
+  if (!inp || !b) return;
+  const amt = parseFloat((inp.value || "").replace(/,/g, "")) || 0;
+  const pts = Math.floor(amt / Math.max(+cfg.per_amount || 1, 0.01) * (+cfg.points || 1));
+  b.textContent = pts > 0 ? `إضافة ${JB.fmt(pts)} نقطة` : "إضافة النقاط";
+}
+function earn() {
+  const amt = parseFloat((document.getElementById("amount").value || "").replace(/,/g, ""));
+  if (!amt || amt <= 0) { JB.toast("اكتب المبلغ أولاً", "bad"); return; }
+  act("earn", { p_amount: amt });
+}
+
+/* ضغطتان للعمليات الحساسة */
+function confirmThen(key, fn) {
+  const btn = document.getElementById("b-" + key);
+  if (confirmKey !== key) {
+    confirmKey = key; btn._txt = btn.innerHTML;
+    btn.classList.add("confirming"); btn.innerHTML = "اضغط مرة ثانية للتأكيد";
+    JB.vibrate(20);
+    clearTimeout(confirmTimer);
+    confirmTimer = setTimeout(() => { confirmKey = null; if (btn.isConnected) { btn.classList.remove("confirming"); btn.innerHTML = btn._txt; } }, 3500);
+    return;
+  }
+  clearTimeout(confirmTimer); confirmKey = null; fn();
+}
+
+const DONE = { stamp: "تمت إضافة الختم ✓", use: "تم الخصم ✓", topup: "تمت التعبئة ✓", earn: "تمت إضافة النقاط ✓", redeem: "تم استبدال المكافأة 🎁", undo: "تم التراجع" };
+
+async function act(action, extra = {}) {
+  if (busy) return; busy = true;
+  document.querySelectorAll(".staff button").forEach((b) => (b.disabled = true));
+  const res = await JB.rpc("jb_action", Object.assign({ p_token: token, p_pin: pin, p_action: action }, extra));
+  busy = false;
+  if (res.ok) {
+    data.card = res.card;
+    if (action === "earn") { const i = document.getElementById("amount"); if (i) i.value = ""; }
+    render();
+    JB.vibrate(action === "stamp" || action === "earn" ? [30, 40, 30] : 40);
+    JB.toast(action === "earn" ? `+${JB.fmt(res.delta)} نقطة ✓` : DONE[action] || "تم", "ok");
+  } else {
+    if (res.error === "BAD_PIN") { logout(true); }
+    render();
+    JB.toast(JB.err(res.error), "bad"); JB.vibrate(200);
+  }
+}
+
+const ACT_LABEL = { stamp: "ختم", redeem: "مكافأة", use: "خصم", topup: "تعبئة", earn: "نقاط", undo: "تراجع" };
+async function history() {
+  const h = document.getElementById("hist");
+  if (h.innerHTML) { h.innerHTML = ""; return; }
+  h.innerHTML = "…";
+  const res = await JB.rpc("jb_history", { p_token: token, p_pin: pin });
+  if (!res.ok) { h.innerHTML = JB.err(res.error); return; }
+  if (!res.items.length) { h.innerHTML = "<div>لا توجد عمليات بعد</div>"; return; }
+  const f = new Intl.DateTimeFormat("ar-IQ", { dateStyle: "short", timeStyle: "short" });
+  h.innerHTML = res.items.map((i) => `<div class="${i.undone ? "undone" : ""}">
+    <span>${ACT_LABEL[i.action] || i.action}${i.label ? " · " + JB.esc(i.action === "undo" ? ACT_LABEL[i.label] || "" : i.label) : ""} (${i.delta > 0 ? "+" : ""}${i.delta}) ← ${JB.fmt(i.balance_after)}</span>
+    <span class="muted">${f.format(new Date(i.at))}</span></div>`).join("");
+}
+
+function showPin() {
+  document.getElementById("app").innerHTML = `
+    <div class="panel">
+      <h2 class="center">دخول الموظف</h2>
+      <p class="center muted" style="margin:0 0 14px;font-size:14px">${JB.esc(data.business.name)}<br>يُحفظ على هذا الجهاز فقط — لا تُدخله على هاتف زبون</p>
+      <form onsubmit="event.preventDefault();login()" class="stack">
+        <input id="pinIn" class="input pin-input" type="password" inputmode="numeric" autocomplete="off" placeholder="••••" required>
+        <button class="btn primary big block" type="submit">دخول</button>
+        <button class="btn ghost" type="button" onclick="render()">رجوع</button>
+      </form>
+    </div>`;
+  document.getElementById("foot").innerHTML = "";
+  setTimeout(() => document.getElementById("pinIn").focus(), 50);
+}
+async function login() {
+  const v = document.getElementById("pinIn").value.trim();
+  if (!v) return;
+  const res = await JB.rpc("jb_staff_login", { p_token: token, p_pin: v });
+  if (res.ok) { pin = v; JB.store.set(pinKey(), v); JB.toast("تم تفعيل وضع الموظف", "ok"); render(); }
+  else { JB.toast(JB.err(res.error), "bad"); JB.vibrate(200); document.getElementById("pinIn").select(); }
+}
+function logout(silent) {
+  pin = null; if (data) JB.store.del(pinKey());
+  if (!silent) { JB.toast("تم الخروج من وضع الموظف"); render(); }
+}
+
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#f8f4ee">
+<title>احصل على بطاقتك — جيبي</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="jb.css">
+<script src="config.js"></script>
+<script src="qr.js"></script>
+<script src="jb.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <a class="brandbar" href="./"><span class="mark">ج</span>جيبي <small>بطاقاتك بجيبك</small></a>
+  <div id="app"><div class="msg">جارِ التحميل…</div></div>
+</div>
+<script>
+const code = JB.param("j").trim().toLowerCase();
+let info = null;
+
+async function load() {
+  if (!code) { app(`<div class="msg">امسح الباركود الموجود في المحل.</div>`); return; }
+  const res = await JB.rpc("jb_join_info", { p_join: code });
+  if (!res.ok) { app(`<div class="msg">${res.error === "NOT_FOUND" ? "هذا الرابط غير صحيح" : JB.err(res.error)}</div>`); return; }
+  info = res;
+  document.title = `${info.business.name} — احصل على بطاقتك`;
+  const existing = JB.store.get("jb_join_" + code);
+  const p = info.program, cfg = p.config || {};
+  let pitch = "";
+  if (p.kind === "stamps") {
+    const first = (cfg.rewards || [])[0];
+    pitch = first ? `اجمع ${first.at} أختام واحصل على <b>${JB.esc(first.label)}</b>` : "اجمع الأختام مع كل زيارة";
+  } else if (p.kind === "prepaid") pitch = `رصيدك من ${JB.esc(cfg.unit || "الخدمات")} محفوظ في هاتفك`;
+  else pitch = `كل ${JB.fmt(cfg.per_amount)} ${JB.esc(cfg.currency || "د.ع")} = ${JB.fmt(cfg.points || 1)} نقطة`;
+
+  let html = JB.cardVisual(info, null, { noQr: true });
+  html += `<p class="center" style="font-size:18px;margin:16px 0 4px">${pitch}</p>`;
+  if (p.description) html += `<p class="center muted" style="margin:0 0 6px">${JB.esc(p.description)}</p>`;
+  html += JB.rewardsList(info, 0);
+
+  if (!p.active) html += `<div class="panel center" style="margin-top:14px;color:var(--bad);font-weight:700">هذا البرنامج متوقف حالياً</div>`;
+  else if (p.expired) html += `<div class="panel center" style="margin-top:14px;color:var(--bad);font-weight:700">انتهت مدة هذا العرض</div>`;
+  else if (existing) html += `
+    <div class="panel center" style="margin-top:14px">
+      <p style="margin:0 0 12px;font-weight:700">لديك بطاقة بالفعل في ${JB.esc(info.business.name)}</p>
+      <a class="btn brand big block" href="card.html?k=${encodeURIComponent(existing)}" style="text-decoration:none">افتح بطاقتي</a>
+      <button class="btn ghost" onclick="JB.store.del('jb_join_'+code);load()">أريد بطاقة جديدة لشخص آخر</button>
+    </div>`;
+  else html += `
+    <form class="panel" style="margin-top:14px" onsubmit="event.preventDefault();join()">
+      <h2>احصل على بطاقتك مجاناً</h2>
+      <p class="muted" style="margin:0 0 14px;font-size:14px">بدون تطبيق — تحفظها في هاتفك</p>
+      <div class="field"><label for="nm">الاسم</label><input id="nm" class="input" autocomplete="name" maxlength="60" required></div>
+      <div class="field"><label for="ph">رقم الهاتف <small>(اختياري — لاسترجاع البطاقة)</small></label>
+        <input id="ph" class="input ltr" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="07xx xxx xxxx"></div>
+      <button class="btn brand big block" id="go" type="submit">احصل على بطاقتي</button>
+    </form>`;
+  app(html);
+}
+
+async function join() {
+  const b = document.getElementById("go");
+  b.disabled = true; b.textContent = "لحظة…";
+  const res = await JB.rpc("jb_join", { p_join: code, p_name: document.getElementById("nm").value, p_phone: document.getElementById("ph").value });
+  if (!res.ok) { JB.toast(JB.err(res.error), "bad"); b.disabled = false; b.textContent = "احصل على بطاقتي"; return; }
+  JB.store.set("jb_join_" + code, res.token);
+  JB.myCards.add(res.token, `${info.business.name} · ${info.program.title}`);
+  location.href = "card.html?k=" + encodeURIComponent(res.token);
+}
+
+function app(h) { document.getElementById("app").innerHTML = h; }
+load();
+</script>
+</body>
+</html>
