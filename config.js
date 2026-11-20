@@ -4,5 +4,5 @@ window.JB_CONFIG = {
   SUPABASE_KEY: "sb_publishable_DzyBNO9y42ZwYkxq5iaUSg_j21cIEiz",
   // غيّرها إلى true بعد إكمال إعداد كل محفظة
   WALLET_APPLE: true,
-  WALLET_GOOGLE: false
+  WALLET_GOOGLE: true
 };
